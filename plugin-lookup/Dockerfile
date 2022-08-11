@@ -1,7 +1,9 @@
 FROM ubuntu:22.04 as builder
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update
-RUN apt-get install -y git curl
+RUN apt-get update && apt-get install -y \
+        curl \
+        git \
+    && rm -rf /var/lib/apt/lists/*
 ARG TARGETARCH
 RUN curl -O https://dl.google.com/go/go1.17.linux-${TARGETARCH}.tar.gz
 RUN rm -rf /usr/local/go && tar -C /usr/local -xzf go1.17.linux-${TARGETARCH}.tar.gz
@@ -16,8 +18,9 @@ RUN --mount=type=tmpfs,target=/tmpfs \
 
 FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update
-RUN apt-get install -y curl
+RUN apt-get update && apt-get install -y \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
 COPY scripts /scripts/
 COPY data /data/
 COPY --from=builder /lookup_plugin /

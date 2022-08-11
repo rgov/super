@@ -1,7 +1,16 @@
 FROM ubuntu:22.04 as builder
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update
-RUN apt-get install -y --no-install-recommends nftables iproute2 netcat inetutils-ping net-tools nano ca-certificates git curl
+RUN apt-get update && apt-get install -y \
+        ca-certificates \
+        curl \
+        git \
+        inetutils-ping \
+        iproute2 \
+        nano \
+        net-tools \
+        netcat \
+        nftables \
+    && rm -rf /var/lib/apt/lists/*
 RUN mkdir /code
 WORKDIR /code
 ARG TARGETARCH
@@ -17,8 +26,15 @@ RUN --mount=type=tmpfs,target=/tmpfs \
 
 FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update
-RUN apt-get install -y --no-install-recommends nftables iproute2 netcat inetutils-ping net-tools nano wireguard-tools
+RUN apt-get update && apt-get install -y \
+        inetutils-ping \
+        iproute2 \
+        nano \
+        net-tools \
+        netcat \
+        nftables \
+        wireguard-tools \
+    && rm -rf /var/lib/apt/lists/*
 COPY scripts /scripts/
 COPY --from=builder /wireguard_plugin /
 ENTRYPOINT ["/scripts/startup.sh"]

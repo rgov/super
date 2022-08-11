@@ -1,7 +1,17 @@
 FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update
-RUN apt-get install -y iptables nftables iproute2 netcat inetutils-ping net-tools nano ca-certificates
-RUN apt-get install -y ppp
+RUN apt-get update && apt-get install -y \
+        ca-certificates \
+        inetutils-ping \
+        iproute2 \
+        iptables \
+        nano \
+        net-tools \
+        netcat \
+        nftables \
+    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+        ppp \
+    && rm -rf /var/lib/apt/lists/*
 COPY scripts /scripts
 ENTRYPOINT /scripts/startup.sh
