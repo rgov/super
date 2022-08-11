@@ -6,6 +6,12 @@ if [ '!' -d "configs/" ]; then
   exit 1
 fi
 
+if ! command -v jq >/dev/null; then
+  echo Please install the jq tool
+  exit 1
+fi
+
+
 # remove prebuilt images
 FOUND_PREBUILT_IMAGE=false
 for SERVICE in $(docker-compose config --services); do
@@ -43,23 +49,28 @@ mkdir -p state/wifi/
 mkdir -p state/wifi/sta_mac_iface_map/
 touch state/dns/local_mappings state/dhcp/leases.txt
 
-BUILDARGS=""
-if [ -f .github_creds ]; then
-  BUILDARGS="--set *.args.GITHUB_CREDS=`cat .github_creds`"
-fi
 
-# We use docker buildx so we can build multi-platform images. Unfortunately,
-# a limitation is that multi-platform images cannot be loaded from the builder
-# into Docker.
+# We use docker buildx so we have the option of building multi-platform images.
+#
+# With buildx, the actual build takes place inside a builder container. This
+# container is managed by the local Docker daemon but is otherwise separate
+# from it, and they do not share images or a layer cache.
+#
+# Accordingly, we have to export our built images from the builder container to
+# the local Docker daemon if we want to run them. However, this is only
+# possible for single-platform images due to current limitations.
+BAKEOPTS=()
+
 docker buildx create --name super-builder --driver docker-container \
   2>/dev/null || true
 
-# Look for any images that would be built multi-platform
+# Translate the docker-compose.yml to JSON and look for any images that would
+# be built multi-platform. 
 IS_MULTIPLATFORM=$(
   docker buildx bake \
     --builder super-builder \
     --file docker-compose.yml \
-    ${BUILDARGS} "$@" \
+    ${BAKEOPTS[@]-} "$@" \
     --print --progress none \
   | jq 'any(.target[].platforms//[]|map(split(",";"")[])|unique; length >= 2)'
 )
@@ -67,19 +78,50 @@ IS_MULTIPLATFORM=$(
 # If this is a single-platform build, then by default load it into Docker
 echo Is this a multi-platform build? ${IS_MULTIPLATFORM}
 if [ "$IS_MULTIPLATFORM" = "false" ]; then
-  BUILDARGS="$BUILDARGS --load"
+  BAKEOPTS+=(--load)
 fi
 
+# Make GitHub credentials available at build-time if present
+if [ -f .github_creds ]; then
+  BAKEOPTS+=(--set "*.args.GITHUB_CREDS=`cat .github_creds`")
+fi
+
+# Local builds will reuse the same builder container and therefore the same
+# layer cache for faster builds.
+#
+# For CI builds, we need to export the cache to a directory that gets persisted
+# across jobs. Two notes:
+#
+#   - Each container image must have a separate cache directory, so we use one
+#     subdirectory per service (moby/buildkit #3026)
+#
+#   - Use a different directory for CACHE_FROM_DIR as CACHE_TO_DIR, so that we
+#     do not accumulate stale cache entries (moby/buildkit #1896)
+if [ -n "${CACHE_FROM_DIR:-}" ]; then
+  for SERVICE in $(docker-compose config --services); do
+    BAKEOPTS+=(--set "${SERVICE}.cache-from=type=local,src=${CACHE_FROM_DIR}/${SERVICE}/")
+  done
+fi
+if [ -n "${CACHE_TO_DIR:-}" ]; then
+  for SERVICE in $(docker-compose config --services); do
+    # Use mode=max for caching of intermediate stages as well
+    BAKEOPTS+=(--set "${SERVICE}.cache-to=type=local,dest=${CACHE_TO_DIR}/${SERVICE}/,mode=max")
+  done
+fi
+
+set +e
 docker buildx bake \
   --builder super-builder \
   --file docker-compose.yml \
-  ${BUILDARGS} "$@"
-
+  ${BAKEOPTS[@]-} "$@"
 ret=$?
 
 if [ "$ret" -ne "0" ]; then
-  echo "Tip: if the build failed to resovle domain names," 
+  echo
+  echo "Tip: if the build failed to resolve domain names," 
   echo "consider running ./base/docker_nftables_setup.sh"
   echo "since iptables has been disabled for docker in the"
   echo "SPR installer"
 fi
+
+exit $ret
