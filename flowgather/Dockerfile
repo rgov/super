@@ -43,6 +43,7 @@ RUN apt-get update && apt-get install -y \
         netcat \
         nftables \
     && rm -rf /var/lib/apt/lists/*
+RUN echo "test"
 RUN mkdir /data
 COPY --from=/flowgather /
 ENTRYPOINT ["/scripts/startup.sh"]
